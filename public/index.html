@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nova – Voice Assistant</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body>
+  <header class="header">
+    <div class="brand">
+      <div class="logo">✦</div>
+      <div class="brand-text">
+        <span class="nova">Nova</span>
+        <span class="tag">personal assistant</span>
+      </div>
+    </div>
+    <div class="status-chip" id="status">idle</div>
+  </header>
+
+  <main class="main">
+    <section class="dashboard-panel">
+      <!-- Intelligent Glowing Orb Visualizer -->
+      <div class="visualizer-container">
+        <button id="toggle" class="orb idle" aria-label="Toggle voice assistant">
+          <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true" style="pointer-events: none;">
+            <path fill="currentColor"
+              d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2ZM11 22h2v-3h-2v3Z" />
+          </svg>
+        </button>
+        <div class="orb-glow-bloom"></div>
+        <div class="orb-ring orb-ring-1"></div>
+        <div class="orb-ring orb-ring-2"></div>
+        <div class="orb-ripple orb-ripple-1"></div>
+        <div class="orb-ripple orb-ripple-2"></div>
+        <div class="orb-ripple orb-ripple-3"></div>
+      </div>
+
+      <!-- Transcript Outputs -->
+      <div class="transcripts-container">
+        <div class="listening-header">Live Transcript</div>
+        <div class="transcript-area">
+          <div class="partial-text" id="partial">Tap the orb or type a command below...</div>
+          <div class="final-text" id="final"></div>
+        </div>
+      </div>
+
+      <!-- Manual Text Input -->
+      <div class="command-bar">
+        <input type="text" id="commandInput" class="command-input" placeholder="Type a command..." autoComplete="off">
+        <button id="sendBtn" class="send-button" aria-label="Send command">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Footer connection / command execution status -->
+      <div class="status-footer">
+        <div class="status-indicator">
+          <span class="status-dot" id="wsDot"></span>
+          <span>WebSocket Connection</span>
+        </div>
+        <div class="status-indicator">
+          <span class="status-dot active" id="cmdDot"></span>
+          <span id="commandStatus">Ready</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Grid of Sample Commands -->
+    <section class="tips-grid">
+      <div class="tip-card">
+        <span class="tip-badge">Voice</span>
+        <span class="tip-command">open youtube lo-fi</span>
+      </div>
+      <div class="tip-card">
+        <span class="tip-badge">Folder</span>
+        <span class="tip-command">open downloads</span>
+      </div>
+      <div class="tip-card">
+        <span class="tip-badge">System</span>
+        <span class="tip-command">open whatsapp</span>
+      </div>
+      <div class="tip-card">
+        <span class="tip-badge">Search</span>
+        <span class="tip-command">google node.js tutorials</span>
+      </div>
+      <div class="tip-card">
+        <span class="tip-badge">Time</span>
+        <span class="tip-command">what time is it?</span>
+      </div>
+      <div class="tip-card">
+        <span class="tip-badge">Web</span>
+        <span class="tip-command">open github.com</span>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">Voice or Text. Built for Aryan, powered by Nova.</footer>
+
+  <script>
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const statusEl = document.getElementById('status');
+    const partialEl = document.getElementById('partial');
+    const finalEl = document.getElementById('final');
+    const orbBtn = document.getElementById('toggle');
+    const wsDot = document.getElementById('wsDot');
+    const cmdDot = document.getElementById('cmdDot');
+    const commandStatusEl = document.getElementById('commandStatus');
+    const commandInput = document.getElementById('commandInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    if (!SpeechRecognition) {
+      statusEl.textContent = 'not supported';
+      partialEl.textContent = 'Your browser does not support SpeechRecognition.';
+    }
+
+    let ws;
+    let rec;
+    let running = false;
+
+    // Helper to update the visual state of the assistant
+    function setAssistantState(state) {
+      // state can be: 'idle', 'listening', 'processing', 'speaking'
+      orbBtn.className = `orb ${state}`;
+      statusEl.className = `status-chip ${state}`;
+      statusEl.textContent = state;
+    }
+
+    function connectWs() {
+      ws = new WebSocket(`ws://${location.host}`);
+      ws.onopen = () => { wsDot.classList.add('active'); };
+      ws.onclose = () => { wsDot.classList.remove('active'); };
+      ws.onerror = () => { wsDot.classList.remove('active'); };
+    }
+
+    connectWs();
+
+    function start() {
+      if (!SpeechRecognition) return;
+      rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = 'en-US';
+
+      rec.onstart = () => {
+        setAssistantState('listening');
+        partialEl.textContent = 'Listening for a command...';
+        finalEl.textContent = '';
+      };
+      rec.onend = () => {
+        if (running) {
+          setTimeout(() => {
+            if (running) rec.start();
+          }, 250);
+        } else {
+          setAssistantState('idle');
+        }
+      };
+      rec.onerror = (e) => {
+        console.error('Recognition error', e);
+        statusEl.textContent = `error: ${e.error || 'unknown'}`;
+        setAssistantState('idle');
+      };
+      rec.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const r = event.results[i];
+          if (r.isFinal) {
+            finalTranscript += r[0].transcript;
+          } else {
+            interimTranscript += r[0].transcript;
+          }
+        }
+        if (interimTranscript) {
+          partialEl.textContent = interimTranscript;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'partial', text: interimTranscript }));
+          }
+        }
+        if (finalTranscript) {
+          finalEl.textContent = finalTranscript;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'final', text: finalTranscript }));
+          }
+          partialEl.textContent = '';
+
+          // Clean and normalize final transcript
+          let cleanText = finalTranscript.trim().toLowerCase();
+          cleanText = cleanText.replace(/[.,?!]+$/, '').trim();
+          cleanText = cleanText.replace(/\b(you\s+tube|youtbe|utube|u\s+tube)\b/g, 'youtube');
+
+          // Handle time queries locally, otherwise pre-speak and send to server
+          if (isTimeQuery(cleanText)) {
+            speakCurrentTime();
+          } else {
+            if (isPlayQuery(cleanText)) {
+              speak('Playing, sir.');
+            } else if (isActionQuery(cleanText)) {
+              speak('Opening sir.');
+            }
+            sendCommand(cleanText);
+          }
+        }
+      };
+
+      rec.start();
+      running = true;
+    }
+
+    function stop() {
+      running = false;
+      try { rec && rec.stop(); } catch { }
+      setAssistantState('idle');
+    }
+
+    orbBtn.addEventListener('click', () => {
+      if (!greeted) greet(true);
+      running ? stop() : start();
+    });
+
+    sendBtn.addEventListener('click', handleTextInput);
+    commandInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') handleTextInput();
+    });
+
+    function handleTextInput() {
+      const text = commandInput.value.trim();
+      if (!text) return;
+
+      finalEl.textContent = text;
+      partialEl.textContent = '';
+      commandInput.value = '';
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'text-command', text }));
+      }
+
+      // Clean and normalize text
+      let cleanText = text.toLowerCase();
+      cleanText = cleanText.replace(/[.,?!]+$/, '').trim();
+      cleanText = cleanText.replace(/\b(you\s+tube|youtbe|utube|u\s+tube)\b/g, 'youtube');
+
+      if (isTimeQuery(cleanText)) {
+        speakCurrentTime();
+      } else {
+        sendCommand(cleanText);
+      }
+    }
+
+    async function sendCommand(text) {
+      try {
+        setAssistantState('processing');
+        commandStatusEl.textContent = 'processing…';
+        cmdDot.classList.remove('active');
+        const res = await fetch('/api/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        commandStatusEl.textContent = data && data.message ? data.message : 'done';
+        cmdDot.classList.add('active');
+
+        if (data && data.action === 'open-file') {
+          if (data.ok) {
+            speak(`Opening ${baseName(data.target)}, sir.`);
+          } else {
+            speak('File not found.');
+          }
+        } else if (data && data.action === 'write-notepad') {
+          if (data.ok) {
+            speak('Writing in Notepad, sir.');
+          } else {
+            speak('Failed to write note.');
+          }
+        } else if (data && data.action === 'play-song') {
+          if (data.ok) {
+            stop();
+          } else {
+            // speak('Failed to play the song.');
+          }
+        } else if (data && data.action === 'chat') {
+          speak(data.reply);
+        } else if (!data || !data.ok) {
+          // speak('Sorry, I could not process that.');
+        } else {
+          // Restore assistant visual state after action completes
+          setAssistantState(running ? 'listening' : 'idle');
+        }
+      } catch (e) {
+        commandStatusEl.textContent = 'error running command';
+        console.error(e);
+        speak('There was an error.');
+      }
+    }
+
+    function speak(text) {
+      try {
+        const synth = window.speechSynthesis;
+        if (!synth || !text) return;
+        try { if (synth.speaking) synth.cancel(); } catch { }
+        const utter = new SpeechSynthesisUtterance(String(text));
+        utter.lang = 'en-US';
+        utter.rate = 1.0;
+        utter.pitch = 1.0;
+        const pickVoice = () => {
+          const voices = synth.getVoices ? synth.getVoices() : [];
+          if (!voices || !voices.length) return null;
+          const prefer = voices.find(v => /en-US|en_GB/i.test(v.lang) && /male|Daniel|Alex|George|Microsoft|Google/i.test(v.name));
+          return prefer || voices.find(v => /en/i.test(v.lang)) || voices[0];
+        };
+        const voice = pickVoice();
+        if (voice) utter.voice = voice;
+
+        const wasRunning = running;
+        if (wasRunning) {
+          running = false;
+          try { rec && rec.stop(); } catch { }
+        }
+
+        utter.onstart = () => {
+          setAssistantState('speaking');
+        };
+        utter.onend = () => {
+          if (wasRunning) {
+            try { start(); } catch { }
+          } else {
+            setAssistantState('idle');
+          }
+        };
+        utter.onerror = () => {
+          if (wasRunning) {
+            try { start(); } catch { }
+          } else {
+            setAssistantState('idle');
+          }
+        };
+        synth.speak(utter);
+      } catch { }
+    }
+
+    let greeted = false;
+    function greet(immediate = false) {
+      if (greeted) return;
+      greeted = true;
+      speak('How may I assist you Aryan sir.');
+    }
+
+    function isTimeQuery(t) {
+      return /(what(?:'s| is) the time|current time|tell me the time|what time is it)/i.test(t || '');
+    }
+
+    function isPlayQuery(t) {
+      if (/\b(how|what|why|where|who)\b/i.test(t)) return false;
+      return /^(play)\b/i.test((t || '').trim()) || /open youtube and play/i.test(t || '');
+    }
+
+    function isActionQuery(t) {
+      if (/\b(how|what|why|where|who)\b/i.test(t)) return false;
+      return /^(open|go to|google|search)\b/i.test((t || '').trim());
+    }
+
+    function speakCurrentTime() {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      speak(`It's ${timeStr}.`);
+      commandStatusEl.textContent = `Time announced: ${timeStr}`;
+    }
+
+    function baseName(p) {
+      return (p || '').split(/[\\/]/).pop();
+    }
+  </script>
+</body>
+
+</html>

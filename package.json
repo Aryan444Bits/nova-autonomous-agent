@@ -1,0 +1,27 @@
+{
+    "name": "terminal-voice-to-text",
+    "version": "1.0.0",
+    "description": "Speak into your mic, see text in terminal (Node.js + Vosk)",
+    "main": "server.js",
+    "type": "commonjs",
+    "scripts": {
+        "start": "node server.js",
+        "check": "node -e \"console.log('Node', process.version)\""
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "keywords": [
+        "speech-to-text",
+        "stt",
+        "microphone",
+        "cli"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "ws": "^8.18.0"
+    }
+}
