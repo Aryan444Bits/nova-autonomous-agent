@@ -1,6 +1,6 @@
 // Command executor for simple natural language actions on Windows
 // Supports: open websites, YouTube searches, common apps, and user folders
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -16,13 +16,17 @@ function quote(v) {
 
 function runStart(target, extra = []) {
   return new Promise((resolve, reject) => {
-    // Use cmd.exe to leverage Windows 'start' builtin
-    const args = ['cmd.exe', '/c', 'start', '""', quote(target), ...extra.map(quote)];
-    const cmd = args.join(' ');
-    exec(cmd, { windowsHide: true }, (err) => {
-      if (err) return reject(err);
+    try {
+      const child = spawn('cmd.exe', ['/c', 'start', '""', target, ...extra], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true
+      });
+      child.unref();
       resolve();
-    });
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
@@ -330,6 +334,190 @@ async function writeNotepad(content) {
   }
 }
 
+function queryAI(systemInstruction, userPrompt, jsonMode = false) {
+  return new Promise((resolve, reject) => {
+    const apiKey = process.env.OPENROUTER_API_KEY || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return reject(new Error('No API key configured.'));
+    }
+
+    if (apiKey.startsWith('AIzaSy')) {
+      // Native Google Gemini API
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const payload = JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: userPrompt }]
+          }
+        ],
+        systemInstruction: {
+          parts: [{ text: systemInstruction }]
+        },
+        generationConfig: {
+          responseMimeType: jsonMode ? 'application/json' : 'text/plain',
+          maxOutputTokens: 2048
+        }
+      });
+      const reqOpts = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        }
+      };
+      const req = https.request(geminiUrl, reqOpts, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            if (json.error) {
+              return reject(new Error(json.error.message || 'Gemini API Error'));
+            }
+            const text = json.candidates[0].content.parts[0].text;
+            resolve(jsonMode ? cleanJsonResponse(text) : text);
+          } catch (e) {
+            reject(new Error(`Failed to parse Gemini response: ${e.message}`));
+          }
+        });
+      });
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+      return;
+    }
+
+    // OpenRouter API
+    const url = 'https://openrouter.ai/api/v1/chat/completions';
+    const payload = JSON.stringify({
+      model: process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash',
+      messages: [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: userPrompt }
+      ],
+      response_format: jsonMode ? { type: 'json_object' } : undefined,
+      max_tokens: 2048
+    });
+
+    const parsedUrl = new URL(url);
+    const reqOpts = {
+      hostname: parsedUrl.hostname,
+      path: parsedUrl.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://github.com/aryan/nova-assistant',
+        'X-Title': 'Nova Voice Assistant',
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    };
+
+    const req = https.request(reqOpts, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.error) {
+            return reject(new Error(json.error.message || 'OpenRouter API Error'));
+          }
+          const text = json.choices[0].message.content;
+          resolve(jsonMode ? cleanJsonResponse(text) : text);
+        } catch (e) {
+          reject(new Error(`Failed to parse OpenRouter response: ${e.message}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function generateLeetCodeProblemsText() {
+  const systemInstruction = "You are a helpful coding tutor assistant. Your task is to generate a dynamic, interesting set of LeetCode problems to solve.";
+  const prompt = `Generate a coding assignment in text format with 3 LeetCode problems. 
+Choose 3 random, interesting problems of varying difficulties (e.g. 1 Easy, 2 Mediums or 2 Easys, 1 Medium).
+Do NOT choose Two Sum, Valid Parentheses, or Longest Substring Without Repeating Characters unless they are randomized naturally among others. Try to pick other interesting ones like:
+- Container With Most Water
+- Group Anagrams
+- Search in Rotated Sorted Array
+- Climbing Stairs
+- Word Search
+- Longest Palindromic Substring
+- Valid Anagram
+- Binary Tree Inorder Traversal
+- Merge Two Sorted Lists
+- etc.
+
+For each problem, include:
+1. Problem Title (with difficulty, e.g., "1. Group Anagrams (Medium)")
+2. Link: The exact, valid URL to the problem on leetcode.com (e.g., https://leetcode.com/problems/group-anagrams/)
+3. Description: A brief description of what the problem asks for (1-2 sentences).
+
+Format the output beautifully with lines and sections, ready to be read in Notepad. Keep instructions at the bottom.
+Return ONLY the raw text content for the Notepad. Do not wrap the response in markdown code blocks (do not use \`\`\` or \`\`\`text).`;
+
+  try {
+    const responseText = await queryAI(systemInstruction, prompt, false);
+    return responseText.trim();
+  } catch (err) {
+    console.error('Error generating LeetCode problems with AI:', err);
+    // Return fallback hardcoded problems if AI fails
+    return `==================================================
+              LEETCODE CODING ASSIGNMENT
+==================================================
+
+Here are some selected LeetCode problems to solve today:
+
+1. Two Sum (Easy)
+   - Link: https://leetcode.com/problems/two-sum/
+   - Description: Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.
+   
+2. Valid Parentheses (Easy)
+   - Link: https://leetcode.com/problems/valid-parentheses/
+   - Description: Given a string s containing just the characters '(', ')', '{', '}', '[' and ']', determine if the input string is valid.
+
+3. Longest Substring Without Repeating Characters (Medium)
+   - Link: https://leetcode.com/problems/longest-substring-without-repeating-characters/
+   - Description: Given a string s, find the length of the longest substring without repeating characters.
+
+Instructions:
+1. Open VS Code and write your solutions in your preferred language.
+2. Go to the LeetCode links in your browser to submit and verify your code.
+3. Keep practicing!
+
+Generated by Nova on ${new Date().toLocaleString()} (Fallback Mode)
+`;
+  }
+}
+
+async function initializeSetup() {
+  const content = await generateLeetCodeProblemsText();
+
+  try {
+    const notepadRes = await writeNotepad(content);
+    const leetcodeRes = await openUrl('https://leetcode.com/problemset/');
+    const vscodeRes = await openApp('vscode');
+
+    const ok = notepadRes.ok && leetcodeRes.ok && vscodeRes.ok;
+    return {
+      ok,
+      action: 'initialize-setup',
+      message: 'Dev setup initialized. Opened LeetCode assignment in Notepad, LeetCode website in browser, and VS Code.'
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      action: 'initialize-setup',
+      message: `Failed to initialize setup: ${err.message}`
+    };
+  }
+}
+
 function ensureUrl(s) {
   if (/^https?:\/\//i.test(s)) return s;
   if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(s)) return `https://${s}`;
@@ -350,10 +538,11 @@ System commands you can trigger include:
 8. Web searches (e.g. "search the web for weather tomorrow", "google nodejs tutorials")
 9. Writing notes, emails, messages, code, or text in Notepad (e.g. "open notepad and write email to boss", "write a note in notepad: buy groceries", "open notepad and write hello world", "write a code to print prime number in notepad"). Standardize this command to 'write notepad: <content>'.
    CRITICAL: If the user asks to write an email, note, message, or code, you must GENERATE the full actual content (e.g., draft the professional email body, write the functional programming code, or write the detailed message/note text) and set it as the <content> of 'write notepad: <content>', rather than using the literal request text.
+10. Initializing the workspace / developer setup (e.g., "initialize my setup", "initialise my setup", "setup my workspace"). Standardize this command to 'initialize my setup'.
 
 You MUST respond in JSON format with the following fields:
 - "type": either "command" or "chat".
-- "command": (required if type is "command") The cleaned and standardized command matching the actions above (e.g., "play shape of you", "open downloads", "open notepad", "google weather", "write notepad: hello boss").
+- "command": (required if type is "command") The cleaned and standardized command matching the actions above (e.g., "play shape of you", "open downloads", "open notepad", "google weather", "write notepad: hello boss", "initialize my setup").
 - "reply": (required if type is "chat") A brief, natural, conversational response speaking to the user (e.g. "Hello sir, how can I assist you today?"). Keep conversational replies concise as they will be spoken out loud.
 
 Input query: `;
@@ -546,6 +735,11 @@ async function handleCommandLocal(text) {
 
   // Normalize YouTube spelling/spacing variations
   t = t.replace(/\b(you\s+tube|youtbe|utube|u\s+tube)\b/g, 'youtube');
+
+  // Initialize setup command
+  if (/(?:initialize|initialise)\s+(?:my\s+)?setup/i.test(t) || t === 'setup my workspace' || t === 'initialize my workspace' || t === 'initialise my workspace') {
+    return initializeSetup();
+  }
 
   // Write in notepad intents
   let notepadWriteContent = null;

@@ -11,11 +11,12 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Command API: accepts { text }
+// Command API: accepts { text, lang }
 app.post('/api/command', async (req, res) => {
   try {
     const text = (req.body && req.body.text) || '';
-    const result = await handleCommand(text);
+    const lang = (req.body && req.body.lang) || 'en';
+    const result = await handleCommand(text, lang);
     res.json(result);
   } catch (e) {
     res.status(500).json({ ok: false, action: 'error', message: e.message || String(e) });

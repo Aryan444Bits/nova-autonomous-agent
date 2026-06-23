@@ -96,6 +96,10 @@
         <span class="tip-badge">Web</span>
         <span class="tip-command">open github.com</span>
       </div>
+      <div class="tip-card">
+        <span class="tip-badge">Setup</span>
+        <span class="tip-command">initialise my setup</span>
+      </div>
     </section>
   </main>
 
@@ -278,6 +282,12 @@
           } else {
             speak('Failed to write note.');
           }
+        } else if (data && data.action === 'initialize-setup') {
+          if (data.ok) {
+            speak('Initializing your developer setup, sir.');
+          } else {
+            speak('Failed to initialize setup.');
+          }
         } else if (data && data.action === 'play-song') {
           if (data.ok) {
             stop();
@@ -375,6 +385,15 @@
     function baseName(p) {
       return (p || '').split(/[\\/]/).pop();
     }
+
+    // Make tip cards clickable
+    document.querySelectorAll('.tip-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const cmd = card.querySelector('.tip-command').textContent.trim();
+        commandInput.value = cmd;
+        handleTextInput();
+      });
+    });
   </script>
 </body>
 
