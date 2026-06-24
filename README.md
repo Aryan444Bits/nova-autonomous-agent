@@ -9,7 +9,7 @@
 
 **Speak or type naturally, and watch Nova execute desktop and system operations instantly on Windows.**
 
-[Features](#-features) • [How It Works](#%EF%B8%8F-how-it-works) • [Prerequisites](#-prerequisites) • [Quick Start](#-quick-start) • [Supported Commands](#-supported-commands) • [Project Structure](#-project-structure)
+[🎥 Demo Video](https://drive.google.com/file/d/1NoJreXUiqZFGdH9ErkbiXJb_4MomUGze/view?usp=drive_link) • [Features](#-features) • [How It Works](#%EF%B8%8F-how-it-works) • [Prerequisites](#-prerequisites) • [Quick Start](#-quick-start) • [Supported Commands](#-supported-commands) • [Project Structure](#-project-structure)
 
 </div>
 
